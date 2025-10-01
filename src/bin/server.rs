@@ -46,72 +46,70 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
     let mut request_count = 0;
     let mut log_entries = Vec::new(); // Buffer for batch-wise WAL
     let mut log_file = OpenOptions::new()
-    .append(true)
-    .create(true)
-    .open(&args.logfile)
-    .unwrap();
+        .append(true)
+        .create(true)
+        .open(&args.logfile)
+        .unwrap();
 
     while let Some(Ok(line)) = lines.next() {
-        let parts: Vec<&str> = line.trim_end().splitn(3, ' ').collect();
-        match parts[0] {
-            "GET" if parts.len() == 2 => {
-                let map = map.read().unwrap();
-                response.push_str(&match map.get(&parts[1].to_string()) {
-                    Some(v) => format!("OK {}\r\n", v),
-                    None => "ERR NotFound\r\n".into(),
-                });
-            }
-            "SET" if parts.len() == 3 => {
-                let mut map = map.write().unwrap();
-                map.insert(parts[1].to_string(), parts[2].to_string());
-                batch_modified = true;
-                request_count += 1;
-                log_entries.push(line.clone() + "\n"); // Buffer for batch-wise WAL
-                response.push_str("OK\r\n");
-            }
-            "REMOVE" if parts.len() == 2 => {
-                let mut map = map.write().unwrap();
-                response.push_str(match map.remove(&parts[1].to_string()) {
-                    Some(_) => {
-                        batch_modified = true;
-                        request_count += 1;
-                        log_entries.push(line.clone() + "\n"); // Buffer for batch-wise WAL
-                        "OK\r\n"
-                    }
-                    None => "ERR NotFound\r\n",
-                });
-            }
-            "SEEK" if parts.len() == 2 => {
-                let map = map.read().unwrap();
-                response.push_str(&match map.seek_ge(&parts[1].to_string()) {
-                    Some((k, v)) => format!("OK {} {}\r\n", k, v),
-                    None => "ERR NotFound\r\n".into(),
-                });
-            }
-            "ENDBATCH" => {
-                if !args.memonly && batch_modified {
-                    // Write buffered log entries (Task 2.3)
-                    for entry in &log_entries {
-                        if let Err(e) = log_file.write_all(entry.as_bytes()) {
-                            eprintln!("Failed to write to log: {}", e);
-                        }
-                    }
-                    // ... snapshot logic ...
-                }
-                writer.write_all(response.as_bytes()).unwrap();
-                response = String::new();
-                batch_modified = false;
-                log_entries.clear();
-            }
-            "EXIT" if parts.len() == 2 && parts[1] == args.exit_code => {
-                eprintln!("Received EXIT command with correct exit code. Exiting.");
-                std::process::exit(0);
-            }
-            _ => {
-                response = "ERR UnknownCommand\r\n".into();
-            }
-        };
-    }
+       let parts: Vec<&str> = line.trim_end().splitn(3, ' ').collect();
+       match parts[0] { 
+           "GET" if parts.len() == 2 => {
+               let map = map.read().unwrap();
+               response.push_str(&match map.get(&parts[1].to_string()) {
+                   Some(v) => format!("OK {}\r\n", v),
+                   None => "ERR NotFound\r\n".into(),
+               });
+           }
+           "SET" if parts.len() == 3 => {
+               let mut map = map.write().unwrap();
+               map.insert(parts[1].to_string(), parts[2].to_string());
+               batch_modified = true;
+               log_entries.push(line.clone() + "\n"); // Buffer for batch-wise WAL
+               response.push_str("OK\r\n");
+           }
+           "REMOVE" if parts.len() == 2 => {
+               let mut map = map.write().unwrap();
+               response.push_str(match map.remove(&parts[1].to_string()) {
+                   Some(_) => {
+                       batch_modified = true;
+                       log_entries.push(line.clone() + "\n"); // Buffer for batch-wise WAL
+                       "OK\r\n"
+                   }
+                   None => "ERR NotFound\r\n",
+               });
+           }
+           "SEEK" if parts.len() == 2 => {
+               let map = map.read().unwrap();
+               response.push_str(&match map.seek_ge(&parts[1].to_string()) {
+                   Some((k, v)) => format!("OK {} {}\r\n", k, v),
+                   None => "ERR NotFound\r\n".into(),
+               });
+           }
+           "ENDBATCH" => {
+               if !args.memonly && batch_modified {
+                   // Write buffered log entries to disk (Task 2.3)
+                   for entry in &log_entries {
+                       if let Err(e) = log_file.write_all(entry.as_bytes()) {
+                           eprintln!("Failed to write to log: {}", e);
+                       }
+                   }
+                   // Snapshot logic for task 3 would go here, but not needed for tasks 1 and 2
+               }
+               writer.write_all(response.as_bytes()).unwrap();
+               response.clear();
+               batch_modified = false;
+               log_entries.clear();
+           }
+           "EXIT" if parts.len() == 2 && parts[1] == args.exit_code => {
+               eprintln!("Received EXIT command with correct exit code. Exiting.");
+               std::process::exit(0);
+           }
+           _ => {
+               response.push_str("ERR UnknownCommand\r\n");
+           }
+       };
+   }
 }
 
 fn recover_from_log(map: &mut TreeMap<String,String>, log: File) { 
