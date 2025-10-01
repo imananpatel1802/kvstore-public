@@ -42,35 +42,29 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
     let reader = BufReader::new(&stream);
     let mut lines = reader.lines();
     let mut response = String::new();
+    let mut batch_modified = false; // Track if batch contains SET/REMOVE
+
     while let Some(Ok(line)) = lines.next() {
         let parts: Vec<&str> = line.trim_end().splitn(3, ' ').collect();
         match parts[0] {
             "GET" if parts.len() == 2 => {
-                let map = map.read().unwrap();                
+                let map = map.read().unwrap();
                 response.push_str(&match map.get(&parts[1].to_string()) {
                     Some(v) => format!("OK {}\r\n", v),
-                    None    => "ERR NotFound\r\n".into(),
+                    None => "ERR NotFound\r\n".into(),
                 });
             }
             "SET" if parts.len() == 3 => {
                 let mut map = map.write().unwrap();
                 map.insert(parts[1].to_string(), parts[2].to_string());
-                if !args.memonly {
-                    if let Err(e) = map.save_to_file(&args.dbfile) {
-                        eprintln!("Failed to save DB: {}", e);
-                    }
-                }
+                batch_modified = true; // Mark batch as modified
                 response.push_str("OK\r\n");
             }
             "REMOVE" if parts.len() == 2 => {
                 let mut map = map.write().unwrap();
                 response.push_str(match map.remove(&parts[1].to_string()) {
                     Some(_) => {
-                        if !args.memonly {
-                            if let Err(e) = map.save_to_file(&args.dbfile) {
-                                eprintln!("Failed to save DB: {}", e);
-                            }
-                        }
+                        batch_modified = true; // Mark batch as modified
                         "OK\r\n"
                     }
                     None => "ERR NotFound\r\n",
@@ -80,25 +74,94 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
                 let map = map.read().unwrap();
                 response.push_str(&match map.seek_ge(&parts[1].to_string()) {
                     Some((k, v)) => format!("OK {} {}\r\n", k, v),
-                    None          => "ERR NotFound\r\n".into(),
+                    None => "ERR NotFound\r\n".into(),
                 });
             }
             "ENDBATCH" => {
+                if !args.memonly && batch_modified {
+                    let map = map.read().unwrap();
+                    if let Err(e) = map.save_to_file(&args.dbfile) {
+                        eprintln!("Failed to save DB: {}", e);
+                    }
+                }
                 writer.write_all(response.as_bytes()).unwrap();
-                response=String::new();
-            }            
-            "EXIT" if parts.len() == 2 && parts[1] == args.exit_code  => {
+                response = String::new();
+                batch_modified = false; // Reset for next batch
+            }
+            "EXIT" if parts.len() == 2 && parts[1] == args.exit_code => {
                 eprintln!("Received EXIT command with correct exit code. Exiting.");
                 std::process::exit(0);
             }
-            _ => { 
-                response="ERR UnknownCommand\r\n".into();
+            _ => {
+                response = "ERR UnknownCommand\r\n".into();
             }
-            // This is a handy special command to help with profiling the server. Would 
-            // not recommend having a command like this in your typical key-value store!
         };
     }
 }
+
+
+// fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<String, String>>>) {
+//     let mut writer = stream.try_clone().unwrap();
+//     let reader = BufReader::new(&stream);
+//     let mut lines = reader.lines();
+//     let mut response = String::new();
+//     while let Some(Ok(line)) = lines.next() {
+//         let parts: Vec<&str> = line.trim_end().splitn(3, ' ').collect();
+//         match parts[0] {
+//             "GET" if parts.len() == 2 => {
+//                 let map = map.read().unwrap();                
+//                 response.push_str(&match map.get(&parts[1].to_string()) {
+//                     Some(v) => format!("OK {}\r\n", v),
+//                     None    => "ERR NotFound\r\n".into(),
+//                 });
+//             }
+//             "SET" if parts.len() == 3 => {
+//                 let mut map = map.write().unwrap();
+//                 map.insert(parts[1].to_string(), parts[2].to_string());
+//                 if !args.memonly {
+//                     if let Err(e) = map.save_to_file(&args.dbfile) {
+//                         eprintln!("Failed to save DB: {}", e);
+//                     }
+//                 }
+//                 response.push_str("OK\r\n");
+//             }
+//             "REMOVE" if parts.len() == 2 => {
+//                 let mut map = map.write().unwrap();
+//                 response.push_str(match map.remove(&parts[1].to_string()) {
+//                     Some(_) => {
+//                         if !args.memonly {
+//                             if let Err(e) = map.save_to_file(&args.dbfile) {
+//                                 eprintln!("Failed to save DB: {}", e);
+//                             }
+//                         }
+//                         "OK\r\n"
+//                     }
+//                     None => "ERR NotFound\r\n",
+//                 });
+//             }
+//             "SEEK" if parts.len() == 2 => {
+//                 let map = map.read().unwrap();
+//                 response.push_str(&match map.seek_ge(&parts[1].to_string()) {
+//                     Some((k, v)) => format!("OK {} {}\r\n", k, v),
+//                     None          => "ERR NotFound\r\n".into(),
+//                 });
+//             }
+//             "ENDBATCH" => {
+//                 writer.write_all(response.as_bytes()).unwrap();
+//                 response=String::new();
+//             }            
+//             "EXIT" if parts.len() == 2 && parts[1] == args.exit_code  => {
+//                 eprintln!("Received EXIT command with correct exit code. Exiting.");
+//                 std::process::exit(0);
+//             }
+//             _ => { 
+//                 response="ERR UnknownCommand\r\n".into();
+//             }
+//             // This is a handy special command to help with profiling the server. Would 
+//             // not recommend having a command like this in your typical key-value store!
+//         };
+//     }
+// }
 
 fn recover_from_log(map: &mut TreeMap<String,String>, log: File) { 
     let mut lines = BufReader::new(log).lines();
