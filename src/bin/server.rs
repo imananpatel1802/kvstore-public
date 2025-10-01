@@ -43,7 +43,7 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
     let mut lines = reader.lines();
     let mut response = String::new();
     let mut batch_modified = false; // Track if batch contains SET/REMOVE
-    //let mut request_count = 0;
+    let mut request_count = 0;
     let mut log_entries = Vec::new(); // Buffer for batch-wise WAL
     let mut log_file = OpenOptions::new()
     .append(true)
