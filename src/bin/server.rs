@@ -41,8 +41,8 @@ struct Args {
     exit_code: String,
 
 
-    /// Number of requests before saving a snapshot and clearing the log
-    #[arg(short = None, long, default_value = "1000")]
+    /// Number of modified batches before saving a snapshot and clearing the log
+    #[arg(long, default_value = "1000", short = None)]
     snapshot_interval: u64,
 }
 
@@ -53,7 +53,7 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
     let mut lines = reader.lines();
     let mut response = String::new();
     let mut batch_modified = false; // Track if batch contains SET/REMOVE
-    let mut request_count = 0;
+    let mut batch_count = 0; // Track number of modified batches (Task 3)
     let mut log_entries = Vec::new(); // Buffer for batch-wise WAL
     let mut log_file = if !args.memonly {
         Some(OpenOptions::new()
@@ -80,7 +80,6 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
                 let mut map = map.write().unwrap();
                 map.insert(parts[1].to_string(), parts[2].to_string());
                 batch_modified = true;
-                request_count += 1;
                 log_entries.push(line.clone() + "\n"); // Buffer for batch-wise WAL
                 response.push_str("OK\r\n");
             }
@@ -89,7 +88,6 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
                 response.push_str(match map.remove(&parts[1].to_string()) {
                     Some(_) => {
                         batch_modified = true;
-                        request_count += 1;
                         log_entries.push(line.clone() + "\n"); // Buffer for batch-wise WAL
                         "OK\r\n"
                     }
@@ -113,8 +111,10 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
                             }
                         }
                     }
+                    // Increment batch count for modified batches (Task 3)
+                    batch_count += 1;
                     // Snapshot logic (Task 3)
-                    if request_count >= args.snapshot_interval {
+                    if batch_count >= args.snapshot_interval {
                         let map = map.read().unwrap();
                         if let Err(e) = map.save_to_file(&args.dbfile) {
                             eprintln!("Failed to save snapshot: {}", e);
@@ -127,7 +127,7 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
                                 eprintln!("Failed to truncate log: {}", e);
                             }
                         }
-                        request_count = 0;
+                        batch_count = 0;
                     }
                 }
                 writer.write_all(response.as_bytes()).unwrap();
