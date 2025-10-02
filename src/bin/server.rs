@@ -51,9 +51,9 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
    let reader = BufReader::new(&stream);
    let mut lines = reader.lines();
    let mut response = String::new();
-   let mut batch_modified = false; // Track if batch contains SET/REMOVE
-   let mut batch_count = 0u64; // Track number of modified batches (Task 3, per fix)
-   let mut log_entries = Vec::new(); // Buffer for batch-wise WAL
+   let mut batch_modified = false; 
+   let mut batch_count = 0u64; 
+   let mut log_entries = Vec::new(); 
    let mut log_file = if !args.memonly {
        Some(OpenOptions::new()
            .append(true)
@@ -79,7 +79,7 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
               let mut map = map.write().unwrap();
               map.insert(parts[1].to_string(), parts[2].to_string());
               batch_modified = true;
-              log_entries.push(line); // Buffer without immediate clone + "\n" for efficiency
+              log_entries.push(line); 
               response.push_str("OK\r\n");
           }
           "REMOVE" if parts.len() == 2 => {
@@ -87,7 +87,7 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
               response.push_str(match map.remove(&parts[1].to_string()) {
                   Some(_) => {
                       batch_modified = true;
-                      log_entries.push(line); // Buffer without immediate clone + "\n"
+                      log_entries.push(line); 
                       "OK\r\n"
                   }
                   None => "ERR NotFound\r\n",
@@ -102,16 +102,16 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
           }
           "ENDBATCH" => {
               if !args.memonly && batch_modified {
-                  // Write buffered log entries to disk ONCE per batch (Task 2.3 optimization)
+                  // Write buffered log entries
                   if let Some(ref mut log_file) = log_file {
-                      let log_data = log_entries.join("\n") + "\n"; // Concatenate once, add final \n
+                      let log_data = log_entries.join("\n") + "\n";
                       if let Err(e) = log_file.write_all(log_data.as_bytes()) {
                           eprintln!("Failed to write to log: {}", e);
                       }
                   }
-                  // Increment batch count for modified batches (Task 3, per fix)
+                  // Increment batch count for modified batches
                   batch_count += 1;
-                  // Snapshot logic (Task 3)
+                  // Snapshot (Task 3)
                   if batch_count >= args.snapshot_interval {
                       let map_guard = map.read().unwrap();
                       if let Err(e) = map_guard.save_to_file(&args.dbfile) {
