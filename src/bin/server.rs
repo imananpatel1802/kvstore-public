@@ -41,7 +41,7 @@ struct Args {
 
 
    /// Number of modified batches before saving a snapshot and clearing the log
-   #[arg(long, default_value = "1000", short = None)]
+   #[arg(long, default_value_t = "1000", short = None)]
    snapshot_interval: u64,
 }
 
