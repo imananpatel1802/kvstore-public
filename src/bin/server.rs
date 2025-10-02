@@ -42,7 +42,7 @@ struct Args {
 
 
     /// Number of requests before saving a snapshot and clearing the log
-    #[arg(long, default_value = "1000")]
+    #[arg(short = None, long, default_value = "1000")]
     snapshot_interval: u64,
 }
 
