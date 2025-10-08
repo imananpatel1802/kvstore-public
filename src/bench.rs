@@ -46,7 +46,7 @@ pub struct Args {
     pub key_range: usize,
 
     /// The size of the value in bytes for SET operations
-    #[arg(long, default_value_t = 128)]
+    #[arg(long, default_value_t = 32)]
     pub value_size: usize,
 
     /// Read/Write ratio (e.g., 90 means 90% GET, 10% SET)
