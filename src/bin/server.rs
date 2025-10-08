@@ -10,7 +10,7 @@ use std::io::Seek;
 use serde::*;
 
 // the kvstore can be configured to use different key types: String, FixedSize, or Integer below
-type KeyType=FixedSize; // String, FixedSize, Integer
+type KeyType=Integer; // String, FixedSize, Integer
 type ValueType=FixedSize; // String, FixedSize (max 32-byte values only)
 
 const FIXED_LEN: usize = 32;
