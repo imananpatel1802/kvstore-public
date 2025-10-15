@@ -102,7 +102,7 @@ fn handle_client(
             "GET" if parts.len() == 2 => {
                 let map = map.read().unwrap();
                 response.push_str(
-                    &match map.get(&Into::<KeyType>::into(parts[1]).to_owned()) {
+                    &match map.get((parts[1])) {
                         Some(v) => format!("OK {}\r\n", v),
                         None => "ERR NotFound\r\n".into(),
                     },
