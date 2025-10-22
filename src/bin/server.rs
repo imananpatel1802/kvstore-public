@@ -5,7 +5,7 @@ use kvstore::TreeMap;
 use serde::*;
 use std::fs::*;
 use std::io::Seek;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Write,BufWriter};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -182,11 +182,6 @@ struct Args {
 //     }
 // }
 
-use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::sync::{Arc, Mutex};
-use std::net::TcpStream;
-use std::fs::File;
-
 fn handle_client(
     args: Arc<Args>,
     stream: TcpStream,
@@ -214,7 +209,7 @@ fn handle_client(
                 match map.get(parts[1]) {
                     Some(v) => {
                         response.push_str("OK ");
-                        response.push_str(v);
+                        response.push_str(&v);
                         response.push_str("\r\n");
                     }
                     None => response.push_str("ERR NotFound\r\n"),
@@ -250,9 +245,9 @@ fn handle_client(
                 match map.seek_ge(&Into::<KeyType>::into(parts[1])) {
                     Some((k, v)) => {
                         response.push_str("OK ");
-                        response.push_str(k);
+                        response.push_str(&k);
                         response.push(' ');
-                        response.push_str(v);
+                        response.push_str(&v);
                         response.push_str("\r\n");
                     }
                     None => response.push_str("ERR NotFound\r\n"),
