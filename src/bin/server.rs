@@ -92,17 +92,13 @@ fn handle_client(
     let mut snapshot_count = 0;
 
     while let Some(Ok(line)) = lines.next() {
-        let mut parts: [&str; 3] = [""; 3];
-        for (partlen, part) in line.trim_end().splitn(3, ' ').enumerate() {
-            parts[partlen] = part;
-        }
-
-        let mut parts = ["";3];
+        let mut parts = [""; 3];
         let mut partlen = 0;
         for part in line.trim_end().splitn(3, ' ') {
-            parts[partlen]=part;
-            partlen+=1;
-        } 
+            parts[partlen] = part;
+            partlen += 1;
+        }
+
 
 //        let parts: Vec<&str> = line.trim_end().splitn(3, ' ').collect();
         match parts[0] {
