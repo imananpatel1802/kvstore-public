@@ -97,23 +97,17 @@ fn handle_client(
             parts[partlen] = part;
         }
 
-        let mut parts = ["";3];
-        let mut partlen = 0;
-        for part in line.trim_end().splitn(3, ' ') {
-            parts[partlen]=part;
-            partlen+=1;
-        } 
-
-//        let parts: Vec<&str> = line.trim_end().splitn(3, ' ').collect();
+        //        let parts: Vec<&str> = line.trim_end().splitn(3, ' ').collect();
         match parts[0] {
-            "GET" if partlen == 2 => {
-                let map = map.read().unwrap();                
-                response.push_str(&match map.get(parts[1])) {
-                    Some(v) => format!("OK {}\r\n", v),
-                    None    => "ERR NotFound\r\n".into(),
-                });
+            "GET" if parts.len() == 2 => {
+                let map = map.read().unwrap();
+                response.push_str(&match map.get(parts[1]) {
+                        Some(v) => format!("OK {}\r\n", v),
+                        None => "ERR NotFound\r\n".into(),
+                    },
+                );
             }
-            "SET" if partlen == 3 => {
+            "SET" if parts.len() == 3 => {
                 let mut map = map.write().unwrap();
                 map.insert(
                     Into::<KeyType>::into(parts[1]),
@@ -125,7 +119,7 @@ fn handle_client(
                 }
                 response.push_str("OK\r\n");
             }
-            "REMOVE" if partlen == 2 => {
+            "REMOVE" if parts.len() == 2 => {
                 let mut map = map.write().unwrap();
                 response.push_str(match map.remove(&Into::<KeyType>::into(parts[1])) {
                     Some(_) => {
@@ -138,7 +132,7 @@ fn handle_client(
                     None => "ERR NotFound\r\n".into(),
                 });
             }
-            "SEEK" if partlen == 2 => {
+            "SEEK" if parts.len() == 2 => {
                 let map = map.read().unwrap();
                 response.push_str(&match map.seek_ge(&Into::<KeyType>::into(parts[1])) {
                     Some((k, v)) => format!("OK {} {}\r\n", k, v),
@@ -170,7 +164,7 @@ fn handle_client(
             }
             // This is a handy special command to help with profiling the server. Would
             // not recommend having a command like this in your typical key-value store!
-            "EXIT" if partlen == 2 && parts[1] == args.exit_code  => {
+            "EXIT" if parts.len() == 2 && parts[1] == args.exit_code => {
                 eprintln!("Received EXIT command with correct exit code. Exiting.");
                 std::process::exit(0);
             }
