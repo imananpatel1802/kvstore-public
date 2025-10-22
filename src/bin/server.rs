@@ -188,7 +188,7 @@ fn handle_client(
     logwriter: Arc<Mutex<File>>,
     map: Arc<RwLock<TreeMap<KeyType, ValueType>>>,
 ) {
-    let mut writer = stream.try_clone().unwrap();
+    let mut writer = std::io::BufWriter::with_capacity(65536, stream.try_clone().unwrap());
     let reader = BufReader::with_capacity(65536, &stream);
     let mut lines = reader.lines();
     let mut response = String::with_capacity(1024);
@@ -248,6 +248,7 @@ fn handle_client(
                     writer.write_all(response.as_bytes()).unwrap();
                     response.clear();
                 }
+                writer.flush().unwrap(); // Ensure buffered data is sent
                 snapshot_count += 1;
                 if args.memonly == false && snapshot_count == args.snapshot_interval {
                     print!("Snapshotting...");
@@ -272,7 +273,6 @@ fn handle_client(
             "CLEAR" => {
                 let _ = std::mem::replace(&mut *map.write().unwrap(), TreeMap::new());
                 writer.write_all("OK\r\n".as_bytes()).unwrap();
-                println!("Cleared map.");
             }
             _ => {
                 response.push_str("ERR UnknownCommand\r\n");
