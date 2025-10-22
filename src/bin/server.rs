@@ -8,6 +8,7 @@ use std::io::Seek;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, RwLock};
+use std::fmt::Write;
 
 // the kvstore can be configured to use different key types: String, FixedSize, or Integer below
 type KeyType = String; // String, FixedSize, Integer
