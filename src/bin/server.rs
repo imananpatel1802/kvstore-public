@@ -104,11 +104,12 @@ fn handle_client(
         match parts[0] {
             "GET" if partlen == 2 => {
                 let map = map.read().unwrap();
-                response.push_str(&match map.get(parts[1]) {
-                    Some(v) => format!("OK {}\r\n", v),
-                    None    => "ERR NotFound\r\n".into(),
-                });
+                match map.get(parts[1]) {
+                    Some(v) => write!(writer, "OK {}\r\n", v).unwrap(),
+                    None => writer.write_all(b"ERR NotFound\r\n").unwrap(),
+                }
             }
+
             "SET" if partlen == 3 => {
                 let mut map = map.write().unwrap();
                 map.insert(
