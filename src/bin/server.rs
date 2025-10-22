@@ -87,8 +87,8 @@ fn handle_client(
     let mut writer = stream.try_clone().unwrap();
     let reader = BufReader::with_capacity(65536, &stream);
     let mut lines = reader.lines();
-    let mut response = String::with_capacity(16384);
-    let mut log = String::with_capacity(16384);
+    let mut response = String::new();
+    let mut log = String::new();
     let mut snapshot_count = 0;
 
     while let Some(Ok(line)) = lines.next() {
