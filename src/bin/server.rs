@@ -87,8 +87,8 @@ fn handle_client(
     let mut writer = stream.try_clone().unwrap();
     let reader = BufReader::with_capacity(65536, &stream);
     let mut lines = reader.lines();
-    let mut response = String::new();
-    let mut log = String::new();
+    let mut response = String::with_capacity(1024); // Pre-allocate to avoid initial reallocations
+    let mut log = String::with_capacity(1024); // Same for log
     let mut snapshot_count = 0;
 
     while let Some(Ok(line)) = lines.next() {
@@ -104,10 +104,14 @@ fn handle_client(
         match parts[0] {
             "GET" if partlen == 2 => {
                 let map = map.read().unwrap();
-                response.push_str(&match map.get(parts[1]) {
-                    Some(v) => format!("OK {}\r\n", v),
-                    None    => "ERR NotFound\r\n".into(),
-                });
+                match map.get(parts[1]) {
+                    Some(v) => {
+                        response.push_str("OK ");
+                        response.push_str(v);
+                        response.push_str("\r\n");
+                    }
+                    None => response.push_str("ERR NotFound\r\n"),
+                }
             }
             "SET" if partlen == 3 => {
                 let mut map = map.write().unwrap();
@@ -143,7 +147,7 @@ fn handle_client(
             }
             "ENDBATCH" => {
                 writer.write_all(response.as_bytes()).unwrap();
-                response = String::new();
+                response.clear(); // Clear instead of new() to retain capacity and avoid allocation
 
                 snapshot_count += 1;
                 if args.memonly == false && snapshot_count == args.snapshot_interval {
@@ -161,9 +165,10 @@ fn handle_client(
                     logwriter.write_all(log.as_bytes()).unwrap();
                     logwriter.flush().unwrap();
 
-                    log = String::new();
+                    log.clear(); // Clear instead of new()
                 }
             }
+
             // This is a handy special command to help with profiling the server. Would
             // not recommend having a command like this in your typical key-value store!
             "EXIT" if partlen == 2 && parts[1] == args.exit_code  => {
