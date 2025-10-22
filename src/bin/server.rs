@@ -99,7 +99,7 @@ fn handle_client(
 
         //        let parts: Vec<&str> = line.trim_end().splitn(3, ' ').collect();
         match parts[0] {
-            "GET" if part.(len) == 2 => {
+            "GET" if parts.(len) == 2 => {
                 let map = map.read().unwrap();
                 response.push_str(&match map.get(parts[1]) {
                     Some(v) => format!("OK {}\r\n", v),
