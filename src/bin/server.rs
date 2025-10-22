@@ -78,6 +78,110 @@ struct Args {
     exit_code: String,
 }
 
+// fn handle_client(
+//     args: Arc<Args>,
+//     stream: TcpStream,
+//     logwriter: Arc<Mutex<File>>,
+//     map: Arc<RwLock<TreeMap<KeyType, ValueType>>>,
+// ) {
+//     let mut writer = stream.try_clone().unwrap();
+//     let reader = BufReader::with_capacity(65536, &stream);
+//     let mut lines = reader.lines();
+//     let mut response = String::new();
+//     let mut log = String::new();
+//     let mut snapshot_count = 0;
+
+//     while let Some(Ok(line)) = lines.next() {
+//         let mut parts = [""; 3];
+//         let mut partlen = 0;
+//         for part in line.trim_end().splitn(3, ' ') {
+//             parts[partlen] = part;
+//             partlen += 1;
+//         }
+
+
+// //        let parts: Vec<&str> = line.trim_end().splitn(3, ' ').collect();
+//         match parts[0] {
+//             "GET" if partlen == 2 => {
+//                 let map = map.read().unwrap();
+//                 response.push_str(&match map.get(parts[1]) {
+//                     Some(v) => format!("OK {}\r\n", v),
+//                     None    => "ERR NotFound\r\n".into(),
+//                 });
+//             }
+//             "SET" if partlen == 3 => {
+//                 let mut map = map.write().unwrap();
+//                 map.insert(
+//                     Into::<KeyType>::into(parts[1]),
+//                     Into::<ValueType>::into(parts[2]),
+//                 );
+//                 if !args.memonly {
+//                     log.push_str(line.as_str());
+//                     log.push_str("\n");
+//                 }
+//                 response.push_str("OK\r\n");
+//             }
+//             "REMOVE" if partlen == 2 => {
+//                 let mut map = map.write().unwrap();
+//                 response.push_str(match map.remove(&Into::<KeyType>::into(parts[1])) {
+//                     Some(_) => {
+//                         if !args.memonly {
+//                             log.push_str(line.as_str());
+//                             log.push_str("\n");
+//                         }
+//                         "OK\r\n".into()
+//                     }
+//                     None => "ERR NotFound\r\n".into(),
+//                 });
+//             }
+//             "SEEK" if partlen == 2 => {
+//                 let map = map.read().unwrap();
+//                 response.push_str(&match map.seek_ge(&Into::<KeyType>::into(parts[1])) {
+//                     Some((k, v)) => format!("OK {} {}\r\n", k, v),
+//                     None => "ERR NotFound\r\n".into(),
+//                 });
+//             }
+//             "ENDBATCH" => {
+//                 writer.write_all(response.as_bytes()).unwrap();
+//                 response = String::new();
+
+//                 snapshot_count += 1;
+//                 if args.memonly == false && snapshot_count == args.snapshot_interval {
+//                     print!("Snapshotting...");
+//                     map.read().unwrap().save_to_file(&args.dbfile).unwrap();
+//                     println!("done");
+//                     let mut log = logwriter.lock().unwrap();
+//                     log.rewind().unwrap();
+//                     log.set_len(0).unwrap();
+//                     snapshot_count = 0;
+//                 }
+
+//                 if args.memonly == false {
+//                     let mut logwriter = logwriter.lock().unwrap();
+//                     logwriter.write_all(log.as_bytes()).unwrap();
+//                     logwriter.flush().unwrap();
+
+//                     log = String::new();
+//                 }
+//             }
+//             // This is a handy special command to help with profiling the server. Would
+//             // not recommend having a command like this in your typical key-value store!
+//             "EXIT" if partlen == 2 && parts[1] == args.exit_code  => {
+//                 eprintln!("Received EXIT command with correct exit code. Exiting.");
+//                 std::process::exit(0);
+//             }
+//             "CLEAR" => {
+//                 let _ = std::mem::replace(&mut *map.write().unwrap(), TreeMap::new());
+//                 writer.write_all("OK\r\n".as_bytes()).unwrap();
+//                 println!("Cleared map.");
+//             }
+//             _ => {
+//                 response = "ERR UnknownCommand\r\n".into();
+//             }
+//         }
+//     }
+// }
+
 fn handle_client(
     args: Arc<Args>,
     stream: TcpStream,
@@ -87,8 +191,8 @@ fn handle_client(
     let mut writer = stream.try_clone().unwrap();
     let reader = BufReader::with_capacity(65536, &stream);
     let mut lines = reader.lines();
-    let mut response = String::new();
-    let mut log = String::new();
+    let mut response = String::with_capacity(1024);
+    let mut log = String::with_capacity(1024);
     let mut snapshot_count = 0;
 
     while let Some(Ok(line)) = lines.next() {
@@ -99,15 +203,13 @@ fn handle_client(
             partlen += 1;
         }
 
-
-//        let parts: Vec<&str> = line.trim_end().splitn(3, ' ').collect();
         match parts[0] {
             "GET" if partlen == 2 => {
                 let map = map.read().unwrap();
-                response.push_str(&match map.get(parts[1]) {
-                    Some(v) => format!("OK {}\r\n", v),
-                    None    => "ERR NotFound\r\n".into(),
-                });
+                match map.get(parts[1]) {
+                    Some(v) => write!(response, "OK {}\r\n", v).unwrap(),
+                    None => response.push_str("ERR NotFound\r\n"),
+                }
             }
             "SET" if partlen == 3 => {
                 let mut map = map.write().unwrap();
@@ -129,22 +231,23 @@ fn handle_client(
                             log.push_str(line.as_str());
                             log.push_str("\n");
                         }
-                        "OK\r\n".into()
+                        "OK\r\n"
                     }
-                    None => "ERR NotFound\r\n".into(),
+                    None => "ERR NotFound\r\n",
                 });
             }
             "SEEK" if partlen == 2 => {
                 let map = map.read().unwrap();
                 response.push_str(&match map.seek_ge(&Into::<KeyType>::into(parts[1])) {
                     Some((k, v)) => format!("OK {} {}\r\n", k, v),
-                    None => "ERR NotFound\r\n".into(),
+                    None => "ERR NotFound\r\n".to_string(),
                 });
             }
             "ENDBATCH" => {
-                writer.write_all(response.as_bytes()).unwrap();
-                response = String::new();
-
+                if !response.is_empty() {
+                    writer.write_all(response.as_bytes()).unwrap();
+                    response.clear();
+                }
                 snapshot_count += 1;
                 if args.memonly == false && snapshot_count == args.snapshot_interval {
                     print!("Snapshotting...");
@@ -155,32 +258,28 @@ fn handle_client(
                     log.set_len(0).unwrap();
                     snapshot_count = 0;
                 }
-
                 if args.memonly == false {
                     let mut logwriter = logwriter.lock().unwrap();
                     logwriter.write_all(log.as_bytes()).unwrap();
                     logwriter.flush().unwrap();
-
-                    log = String::new();
+                    log.clear();
                 }
             }
-            // This is a handy special command to help with profiling the server. Would
-            // not recommend having a command like this in your typical key-value store!
-            "EXIT" if partlen == 2 && parts[1] == args.exit_code  => {
+            "EXIT" if partlen == 2 && parts[1] == args.exit_code => {
                 eprintln!("Received EXIT command with correct exit code. Exiting.");
                 std::process::exit(0);
             }
             "CLEAR" => {
                 let _ = std::mem::replace(&mut *map.write().unwrap(), TreeMap::new());
-                writer.write_all("OK\r\n".as_bytes()).unwrap();
-                println!("Cleared map.");
+                response.push_str("OK\r\n");
             }
             _ => {
-                response = "ERR UnknownCommand\r\n".into();
+                response.push_str("ERR UnknownCommand\r\n");
             }
         }
     }
 }
+
 
 
 fn recover_from_log(map: &mut TreeMap<KeyType, ValueType>, log: File) {
