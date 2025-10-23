@@ -87,7 +87,7 @@ fn handle_client(
     let mut writer = stream.try_clone().unwrap();
     let reader = BufReader::with_capacity(65536, &stream);
     let mut lines = reader.lines();
-    let mut response = String::new();
+    let mut response = String::with_capacity(10000);
     let mut log = String::new();
     let mut snapshot_count = 0;
 
@@ -143,7 +143,7 @@ fn handle_client(
             }
             "ENDBATCH" => {
                 writer.write_all(response.as_bytes()).unwrap();
-                response = String::new();
+                response.clear();
 
                 snapshot_count += 1;
                 if args.memonly == false && snapshot_count == args.snapshot_interval {
