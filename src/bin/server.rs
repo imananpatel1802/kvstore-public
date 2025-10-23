@@ -105,8 +105,16 @@ fn handle_client(
             "GET" if partlen == 2 => {
                 let map = map.read().unwrap();
                 response.push_str(&match map.get(parts[1]) {
-                    Some(v) => format!("OK {}\r\n", v),
-                    None    => "ERR NotFound\r\n".into(),
+                    // Some(v) => format!("OK {}\r\n", v),
+                    // None    => "ERR NotFound\r\n".into(),
+                    Some((k, v)) => {
+                            response.push_str("OK ");
+                            response.push_str(k);
+                            response.push(' ');
+                            response.push_str(v);
+                            response.push_str("\r\n");
+                    }
+                    None => response.push_str("ERR NotFound\r\n"),
                 });
             }
             "SET" if partlen == 3 => {
