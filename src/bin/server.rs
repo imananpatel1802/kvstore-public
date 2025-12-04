@@ -8,9 +8,6 @@ use std::net::{TcpListener, TcpStream};
 use std::io::{BufRead, BufReader, Write};
 use std::fs::*;
 use std::sync::{Arc, RwLock, Mutex};
-use std::sync::RwLockReadGuard;
-use std::sync::atomic::{AtomicUsize, Ordering};
-static READ_LOCK_ACQUIRES: AtomicUsize = AtomicUsize::new();
 
 #[cfg(not(feature="btree"))]
 use kvstore::TreeMap;
@@ -232,116 +229,6 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, logwriter: Arc<Mutex<File>>
         line.clear();
     }
 }
-
-// fn handle_client(
-//     args: Arc<Args>,
-//     stream: TcpStream,
-//     logwriter: Arc<Mutex<File>>,
-//     map: Arc<RwLock<MapType>>,
-// ) {
-//     let mut writer = stream.try_clone().unwrap();
-//     let mut reader = BufReader::with_capacity(65536, &stream);
-//     let mut response = String::with_capacity(4096);
-//     let mut log = String::new();
-//     let mut line = String::with_capacity(200);
-
-//     // This holds a read guard across multiple GETs inside the same batch
-//     let mut read_guard: Option<RwLockReadGuard<'_, MapType>> = None;
-
-//     while let Ok(length) = reader.read_line(&mut line) {
-//         if length == 0 {
-//             break;
-//         }
-
-//         // Parse up to 3 space-separated parts
-//         let mut parts = ["", "", ""];
-//         let mut part_count = 0;
-//         for part in line.trim_end().splitn(3, ' ') {
-//             if part_count < 3 {
-//                 parts[part_count] = part;
-//                 part_count += 1;
-//             }
-//         }
-
-//         match parts[0] {
-//             "GET" if part_count == 2 => {
-//                 // Lazily acquire the read lock only if we don't already have a guard
-//                 let map_ref = match &read_guard {
-//                     Some(guard) => &**guard,
-//                     None => {
-//                         read_guard = Some(map.read().unwrap());
-//                         &*read_guard.as_ref().unwrap()
-//                     }
-//                 };
-
-//                 match map_ref.get(parts[1]) {
-//                     Some(v) => {
-//                         response.push_str("OK ");
-//                         response.push_str(v);
-//                         response.push_str("\r\n");
-//                     }
-//                     None => response.push_str("ERR NotFound\r\n"),
-//                 }
-//             }
-
-//             "SET" if part_count == 3 => {
-//                 // Must drop any existing read guard before acquiring a write lock
-//                 read_guard = None;
-
-//                 let mut map_mut = map.write().unwrap();
-//                 map_mut.insert(
-//                     Into::<KeyType>::into(parts[1]),
-//                     Into::<ValueType>::into(parts[2]),
-//                 );
-
-//                 if !args.memonly {
-//                     log.push_str(&line);
-//                     log.push('\n');
-//                 }
-//                 response.push_str("OK\r\n");
-//             }
-
-//             "ENDBATCH" => {
-//                 // Release the read guard at the end of each batch
-//                 // (prevents starving writers if another thread wants to write)
-//                 read_guard = None;
-
-//                 writer.write_all(response.as_bytes()).unwrap();
-//                 response.clear();
-
-//                 if !args.memonly {
-//                     let mut logwriter_guard = logwriter.lock().unwrap();
-//                     logwriter_guard.write_all(log.as_bytes()).unwrap();
-//                     logwriter_guard.flush().unwrap();
-//                     log.clear();
-//                 }
-//             }
-
-//             "EXIT" if part_count == 2 && parts[1] == args.exit_code => {
-//                 eprintln!("Received EXIT command with correct exit code. Exiting.");
-//                 std::process::exit(0);
-//             }
-
-//             "STATS" => {
-//                 let s = map.read().unwrap().stats();
-//                 println!("Stats: {:?}", s);
-//                 writer.write_all(format!("{} {}\r\n", s.size, s.depth).as_bytes()).unwrap();
-//             }
-
-//             "CLEAR" => {
-//                 let _ = std::mem::replace(&mut *map.write().unwrap(), MapType::new());
-//                 writer.write_all("OK\r\n".as_bytes()).unwrap();
-//                 println!("Cleared map.");
-//             }
-
-//             _ => {
-//                 response = "ERR UnknownCommand\r\n".into();
-//             }
-//         }
-
-//         line.clear();
-//     }
-// }
 
 // fn recover_from_log(map: &mut BTree<KeyType, ValueType, 16, 2>, log: File) { 
 //     let mut lines = BufReader::new(log).lines();
