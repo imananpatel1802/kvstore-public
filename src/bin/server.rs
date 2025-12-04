@@ -245,32 +245,34 @@ fn handle_client(
     let mut log = String::new();
     let mut line = String::with_capacity(200);
 
-    // This holds the read guard for as long as possible within a batch
-    let mut persistent_guard: Option<RwLockReadGuard<'_, MapType>> = None;
+    // This holds a read guard across multiple GETs inside the same batch
+    let mut read_guard: Option<RwLockReadGuard<'_, MapType>> = None;
 
     while let Ok(length) = reader.read_line(&mut line) {
         if length == 0 {
             break;
         }
 
-        // Parse command (up to 3 parts)
+        // Parse up to 3 space-separated parts
         let mut parts = ["", "", ""];
-        let mut partlen = 0;
+        let mut part_count = 0;
         for part in line.trim_end().splitn(3, ' ') {
-            if partlen < 3 {
-                parts[partlen] = part;
-                partlen += 1;
+            if part_count < 3 {
+                parts[part_count] = part;
+                part_count += 1;
             }
         }
 
         match parts[0] {
-            "GET" if partlen == 2 => {
-                // Lazily acquire read lock only when we don't already have a guard
-                let map_ref = persistent_guard.as_ref().unwrap_or_else(|| {
-                    READ_LOCK_ACQUIRES.fetch_add(1, Ordering::Relaxed);
-                    persistent_guard = Some(map.read().unwrap());
-                    persistent_guard.as_ref().unwrap()
-                });
+            "GET" if part_count == 2 => {
+                // Lazily acquire the read lock only if we don't already have a guard
+                let map_ref = match &read_guard {
+                    Some(guard) => &**guard,
+                    None => {
+                        read_guard = Some(map.read().unwrap());
+                        &*read_guard.as_ref().unwrap()
+                    }
+                };
 
                 match map_ref.get(parts[1]) {
                     Some(v) => {
@@ -282,12 +284,15 @@ fn handle_client(
                 }
             }
 
-            "SET" if partlen == 3 => {
-                // Must drop read guard before taking write lock (prevents deadlock)
-                persistent_guard = None;
+            "SET" if part_count == 3 => {
+                // Must drop any existing read guard before acquiring a write lock
+                read_guard = None;
 
-                let mut map_guard = map.write().unwrap();
-                map_guard.insert(Into::<KeyType>::into(parts[1]), Into::<ValueType>::into(parts[2]));
+                let mut map_mut = map.write().unwrap();
+                map_mut.insert(
+                    Into::<KeyType>::into(parts[1]),
+                    Into::<ValueType>::into(parts[2]),
+                );
 
                 if !args.memonly {
                     log.push_str(&line);
@@ -297,8 +302,9 @@ fn handle_client(
             }
 
             "ENDBATCH" => {
-                // Release guard at end of batch so writers aren't starved forever
-                persistent_guard = None;
+                // Release the read guard at the end of each batch
+                // (prevents starving writers if another thread wants to write)
+                read_guard = None;
 
                 writer.write_all(response.as_bytes()).unwrap();
                 response.clear();
@@ -311,7 +317,7 @@ fn handle_client(
                 }
             }
 
-            "EXIT" if partlen == 2 && parts[1] == args.exit_code => {
+            "EXIT" if part_count == 2 && parts[1] == args.exit_code => {
                 eprintln!("Received EXIT command with correct exit code. Exiting.");
                 std::process::exit(0);
             }
@@ -332,14 +338,9 @@ fn handle_client(
                 response = "ERR UnknownCommand\r\n".into();
             }
         }
+
         line.clear();
     }
-
-    // Print final statistics when client disconnects
-    println!(
-        "Client disconnected. Total RwLock read() acquires during this connection: {}",
-        READ_LOCK_ACQUIRES.load(Ordering::Relaxed)
-    );
 }
 
 // fn recover_from_log(map: &mut BTree<KeyType, ValueType, 16, 2>, log: File) { 
