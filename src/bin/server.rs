@@ -8,6 +8,7 @@ use std::net::{TcpListener, TcpStream};
 use std::io::{BufRead, BufReader, Write};
 use std::fs::*;
 use std::sync::{Arc, RwLock, Mutex};
+use std::sync::RwLockReadGuard;
 
 #[cfg(not(feature="btree"))]
 use kvstore::TreeMap;
