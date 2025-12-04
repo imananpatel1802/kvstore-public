@@ -8,6 +8,7 @@ use std::net::{TcpListener, TcpStream};
 use std::io::{BufRead, BufReader, Write};
 use std::fs::*;
 use std::sync::{Arc, RwLock, Mutex};
+use std::sync::RwLockReadGuard;
 
 #[cfg(not(feature="btree"))]
 use kvstore::TreeMap;
@@ -115,117 +116,220 @@ struct Args {
     exit_code: String,    
 }
 
-fn handle_client(args: Arc<Args>, stream: TcpStream, logwriter: Arc<Mutex<File>>, map: Arc<RwLock<MapType>>)
-{
+// fn handle_client(args: Arc<Args>, stream: TcpStream, logwriter: Arc<Mutex<File>>, map: Arc<RwLock<MapType>>)
+// {
+//     let mut writer = stream.try_clone().unwrap();
+//     let mut reader = BufReader::with_capacity(65536,&stream);
+// //    let mut lines = reader.lines();
+//     let mut response = String::with_capacity(4096);
+//     let mut log = String::new();
+//     let mut line = String::with_capacity(200);
+// //    let mut snapshot_count = 0;
+//     while let Ok(length) = reader.read_line(&mut line) {
+//         if length == 0 { break; }
+
+//         let mut parts = ["";3];
+//         let mut partlen = 0;
+//         for part in line.trim_end().splitn(3, ' ') {
+//             parts[partlen]=part;
+//             partlen+=1;
+//         } 
+
+// //        let parts: Vec<&str> = line.trim_end().splitn(3, ' ').collect();
+//         match parts[0] {
+//             "GET" if partlen == 2 => {
+//                 let map = map.read().unwrap();                
+//                 match map.get(parts[1]) {
+//                     Some(v) => {
+//                         response.push_str("OK ");
+//                         response.push_str(v);
+//                         response.push_str("\r\n");
+//                     },
+//                     None => {
+//                         response.push_str("ERR NotFound\r\n")
+//                     }
+//                 }
+//                 // response.push_str(&match map.get(parts[1]) {
+//                 //     Some(v) => format!("OK {}\r\n", v),
+//                 //     None    => "ERR NotFound\r\n".into(),
+//                 // });
+//             }
+//             "SET" if partlen == 3 => {
+//                 let mut map = map.write().unwrap();
+//                 map.insert(Into::<KeyType>::into(parts[1]), Into::<ValueType>::into(parts[2]));
+//                 if !args.memonly {
+//                     log.push_str(line.as_str());
+//                     log.push_str("\n");
+//                 }
+//                 response.push_str("OK\r\n");
+//             }
+//             // "REMOVE" if partlen == 2 => {
+//             //     let mut map = map.write().unwrap();
+//             //     response.push_str(match map.remove(&Into::<KeyType>::into(parts[1])) {
+//             //         Some(_) => {
+//             //             if !args.memonly {
+//             //                 log.push_str(line.as_str());
+//             //                 log.push_str("\n");
+//             //             }
+//             //             "OK\r\n".into()
+//             //         } 
+//             //         None => "ERR NotFound\r\n".into(),
+//             //     });
+//             // }
+//             // "SEEK" if partlen == 2 => {
+//             //     let map = map.read().unwrap();
+//             //     response.push_str(&match map.seek_ge(&Into::<KeyType>::into(parts[1])) {
+//             //         Some((k, v)) => format!("OK {} {}\r\n", k, v),
+//             //         None          => "ERR NotFound\r\n".into(),
+//             //     });
+//             // }
+//             "ENDBATCH" => {
+//                 writer.write_all(response.as_bytes()).unwrap();
+//                 response=String::new();
+
+// //                snapshot_count += 1;
+//                 // if args.memonly==false && snapshot_count == args.snapshot_interval {
+//                 //     print!("Snapshotting...");
+//                 //     map.read().unwrap().save_to_file(&args.dbfile).unwrap();                    
+//                 //     println!("done");
+//                 //     let mut log = logwriter.lock().unwrap();
+//                 //     log.rewind().unwrap();
+//                 //     log.set_len(0).unwrap();
+//                 //     snapshot_count = 0;
+//                 // }
+
+//                 if args.memonly==false {
+//                     let mut logwriter = logwriter.lock().unwrap();
+//                     logwriter.write_all(log.as_bytes()).unwrap();
+//                     logwriter.flush().unwrap();
+                    
+//                     log=String::new();
+//                 }
+
+//             }            
+//             // This is a handy special command to help with profiling the server. Would 
+//             // not recommend having a command like this in your typical key-value store!
+//             "EXIT" if partlen == 2 && parts[1] == args.exit_code  => {
+//                 eprintln!("Received EXIT command with correct exit code. Exiting.");
+//                 std::process::exit(0);
+//             },
+//             "STATS" => {                
+//                 let s = map.read().unwrap().stats();
+//                 println!("Stats: {:?}",s);
+//                 writer.write_all(format!("{} {}\r\n",s.size,s.depth).as_bytes()).unwrap();
+//             },
+//             "CLEAR" => {
+//                 let _ = std::mem::replace(&mut *map.write().unwrap(),MapType::new());
+//                 writer.write_all("OK\r\n".as_bytes()).unwrap();
+//                 println!("Cleared map.");
+//             },
+//             _ => { 
+//                 response="ERR UnknownCommand\r\n".into();
+//             }
+//         };
+//         line.clear();
+//     }
+// }
+
+fn handle_client(
+    args: Arc<Args>,
+    stream: TcpStream,
+    logwriter: Arc<Mutex<File>>,
+    map: Arc<RwLock<MapType>>,
+) {
     let mut writer = stream.try_clone().unwrap();
-    let mut reader = BufReader::with_capacity(65536,&stream);
-//    let mut lines = reader.lines();
+    let mut reader = BufReader::with_capacity(65536, &stream);
     let mut response = String::with_capacity(4096);
     let mut log = String::new();
     let mut line = String::with_capacity(200);
-//    let mut snapshot_count = 0;
-    while let Ok(length) = reader.read_line(&mut line) {
-        if length == 0 { break; }
 
-        let mut parts = ["";3];
+    // *** This is the key change: hold the read guard across GETs in a batch ***
+    let mut persistent_guard: Option<RwLockReadGuard<'_, MapType>> = None;
+
+    while let Ok(length) = reader.read_line(&mut line) {
+        if length == 0 {
+            break;
+        }
+
+        let mut parts = ["", "", ""];
         let mut partlen = 0;
         for part in line.trim_end().splitn(3, ' ') {
-            parts[partlen]=part;
-            partlen+=1;
-        } 
+            if partlen < 3 {
+                parts[partlen] = part;
+                partlen += 1;
+            }
+        }
 
-//        let parts: Vec<&str> = line.trim_end().splitn(3, ' ').collect();
         match parts[0] {
             "GET" if partlen == 2 => {
-                let map = map.read().unwrap();                
-                match map.get(parts[1]) {
+                // Lazily acquire the read guard the first time we need it
+                let map_ref = persistent_guard.as_ref().unwrap_or_else(|| {
+                    persistent_guard = Some(map.read().unwrap());
+                    persistent_guard.as_ref().unwrap()
+                });
+
+                match map_ref.get(parts[1]) {
                     Some(v) => {
                         response.push_str("OK ");
                         response.push_str(v);
                         response.push_str("\r\n");
-                    },
-                    None => {
-                        response.push_str("ERR NotFound\r\n")
                     }
+                    None => response.push_str("ERR NotFound\r\n"),
                 }
-                // response.push_str(&match map.get(parts[1]) {
-                //     Some(v) => format!("OK {}\r\n", v),
-                //     None    => "ERR NotFound\r\n".into(),
-                // });
             }
+
             "SET" if partlen == 3 => {
-                let mut map = map.write().unwrap();
-                map.insert(Into::<KeyType>::into(parts[1]), Into::<ValueType>::into(parts[2]));
+                // Must drop any existing read guard before taking a write lock
+                persistent_guard = None;
+
+                let mut map_guard = map.write().unwrap();
+                map_guard.insert(Into::<KeyType>::into(parts[1]), Into::<ValueType>::into(parts[2]));
+
                 if !args.memonly {
                     log.push_str(line.as_str());
                     log.push_str("\n");
                 }
                 response.push_str("OK\r\n");
             }
-            // "REMOVE" if partlen == 2 => {
-            //     let mut map = map.write().unwrap();
-            //     response.push_str(match map.remove(&Into::<KeyType>::into(parts[1])) {
-            //         Some(_) => {
-            //             if !args.memonly {
-            //                 log.push_str(line.as_str());
-            //                 log.push_str("\n");
-            //             }
-            //             "OK\r\n".into()
-            //         } 
-            //         None => "ERR NotFound\r\n".into(),
-            //     });
-            // }
-            // "SEEK" if partlen == 2 => {
-            //     let map = map.read().unwrap();
-            //     response.push_str(&match map.seek_ge(&Into::<KeyType>::into(parts[1])) {
-            //         Some((k, v)) => format!("OK {} {}\r\n", k, v),
-            //         None          => "ERR NotFound\r\n".into(),
-            //     });
-            // }
+
             "ENDBATCH" => {
+                // Release the read guard at the end of the batch so writers aren't starved forever
+                persistent_guard = None;
+
                 writer.write_all(response.as_bytes()).unwrap();
-                response=String::new();
+                response.clear();
 
-//                snapshot_count += 1;
-                // if args.memonly==false && snapshot_count == args.snapshot_interval {
-                //     print!("Snapshotting...");
-                //     map.read().unwrap().save_to_file(&args.dbfile).unwrap();                    
-                //     println!("done");
-                //     let mut log = logwriter.lock().unwrap();
-                //     log.rewind().unwrap();
-                //     log.set_len(0).unwrap();
-                //     snapshot_count = 0;
-                // }
-
-                if args.memonly==false {
-                    let mut logwriter = logwriter.lock().unwrap();
-                    logwriter.write_all(log.as_bytes()).unwrap();
-                    logwriter.flush().unwrap();
-                    
-                    log=String::new();
+                if !args.memonly {
+                    let mut logwriter_guard = logwriter.lock().unwrap();
+                    logwriter_guard.write_all(log.as_bytes()).unwrap();
+                    logwriter_guard.flush().unwrap();
+                    log.clear();
                 }
+            }
 
-            }            
-            // This is a handy special command to help with profiling the server. Would 
-            // not recommend having a command like this in your typical key-value store!
-            "EXIT" if partlen == 2 && parts[1] == args.exit_code  => {
+            "EXIT" if partlen == 2 && parts[1] == args.exit_code => {
                 eprintln!("Received EXIT command with correct exit code. Exiting.");
                 std::process::exit(0);
-            },
-            "STATS" => {                
+            }
+
+            "STATS" => {
                 let s = map.read().unwrap().stats();
-                println!("Stats: {:?}",s);
-                writer.write_all(format!("{} {}\r\n",s.size,s.depth).as_bytes()).unwrap();
-            },
+                println!("Stats: {:?}", s);
+                writer
+                    .write_all(format!("{} {}\r\n", s.size, s.depth).as_bytes())
+                    .unwrap();
+            }
+
             "CLEAR" => {
-                let _ = std::mem::replace(&mut *map.write().unwrap(),MapType::new());
+                let _ = std::mem::replace(&mut *map.write().unwrap(), MapType::new());
                 writer.write_all("OK\r\n".as_bytes()).unwrap();
                 println!("Cleared map.");
-            },
-            _ => { 
-                response="ERR UnknownCommand\r\n".into();
             }
-        };
+
+            _ => {
+                response = "ERR UnknownCommand\r\n".into();
+            }
+        }
         line.clear();
     }
 }
