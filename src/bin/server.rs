@@ -9,6 +9,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::fs::*;
 use std::sync::{Arc, RwLock, Mutex};
 use std::sync::RwLockReadGuard;
+use std::sync::atomic::{AtomicUsize, Ordering};
+static READ_LOCK_ACQUIRES: AtomicUsize = AtomicUsize::new();
 
 #[cfg(not(feature="btree"))]
 use kvstore::TreeMap;
@@ -243,7 +245,7 @@ fn handle_client(
     let mut log = String::new();
     let mut line = String::with_capacity(200);
 
-    // *** This is the key change: hold the read guard across GETs in a batch ***
+    // This holds the read guard for as long as possible within a batch
     let mut persistent_guard: Option<RwLockReadGuard<'_, MapType>> = None;
 
     while let Ok(length) = reader.read_line(&mut line) {
@@ -251,6 +253,7 @@ fn handle_client(
             break;
         }
 
+        // Parse command (up to 3 parts)
         let mut parts = ["", "", ""];
         let mut partlen = 0;
         for part in line.trim_end().splitn(3, ' ') {
@@ -262,8 +265,9 @@ fn handle_client(
 
         match parts[0] {
             "GET" if partlen == 2 => {
-                // Lazily acquire the read guard the first time we need it
+                // Lazily acquire read lock only when we don't already have a guard
                 let map_ref = persistent_guard.as_ref().unwrap_or_else(|| {
+                    READ_LOCK_ACQUIRES.fetch_add(1, Ordering::Relaxed);
                     persistent_guard = Some(map.read().unwrap());
                     persistent_guard.as_ref().unwrap()
                 });
@@ -279,21 +283,21 @@ fn handle_client(
             }
 
             "SET" if partlen == 3 => {
-                // Must drop any existing read guard before taking a write lock
+                // Must drop read guard before taking write lock (prevents deadlock)
                 persistent_guard = None;
 
                 let mut map_guard = map.write().unwrap();
                 map_guard.insert(Into::<KeyType>::into(parts[1]), Into::<ValueType>::into(parts[2]));
 
                 if !args.memonly {
-                    log.push_str(line.as_str());
-                    log.push_str("\n");
+                    log.push_str(&line);
+                    log.push('\n');
                 }
                 response.push_str("OK\r\n");
             }
 
             "ENDBATCH" => {
-                // Release the read guard at the end of the batch so writers aren't starved forever
+                // Release guard at end of batch so writers aren't starved forever
                 persistent_guard = None;
 
                 writer.write_all(response.as_bytes()).unwrap();
@@ -315,9 +319,7 @@ fn handle_client(
             "STATS" => {
                 let s = map.read().unwrap().stats();
                 println!("Stats: {:?}", s);
-                writer
-                    .write_all(format!("{} {}\r\n", s.size, s.depth).as_bytes())
-                    .unwrap();
+                writer.write_all(format!("{} {}\r\n", s.size, s.depth).as_bytes()).unwrap();
             }
 
             "CLEAR" => {
@@ -332,6 +334,12 @@ fn handle_client(
         }
         line.clear();
     }
+
+    // Print final statistics when client disconnects
+    println!(
+        "Client disconnected. Total RwLock read() acquires during this connection: {}",
+        READ_LOCK_ACQUIRES.load(Ordering::Relaxed)
+    );
 }
 
 // fn recover_from_log(map: &mut BTree<KeyType, ValueType, 16, 2>, log: File) { 
